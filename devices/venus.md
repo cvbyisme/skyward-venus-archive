@@ -90,3 +90,19 @@
 3. 把 `/mnt/vendor/persist/skyward.log` 与 `skyward-kmsg.log` 导出。
 4. 红线：`/metadata/vold/**`、`user_keys/**`、`spblob/**`、`gatekeeper.*.key`、`locksettings.db`
    全部**只读**；不对真实 handle 做失败性 gatekeeper verify；不对真实密钥 `upgradeKey`；不 format data。
+
+## 归档后值得带走的（给下一个 fork 看）
+
+本仓库在 `last-standalone-port` 停在原地，后续开发在 [cvbyisme/Skyward-venus](https://github.com/cvbyisme/Skyward-venus)（fork 自 [hushangda/Skyward-venus](https://github.com/hushangda/Skyward-venus)）。下面这些是本仓库有、那边没有或做得不同的东西：
+
+| 文件 | 作用 | 为什么值得拿 |
+|---|---|---|
+| `crates/skyward-crypto/src/data.rs` 的 `show_owner_storage()` | `/sdcard` 是符号链接时跟随到真实路径再 bind，失败原因写日志 | 未加密机上 `/sdcard` 往往是 `→ /storage/self/primary`，直接 bind 会失败且没声音 |
+| `crates/skyward-crypto/src/keymaster.rs` 的 `check()` + `skyward tee-check` | 不碰用户密钥，只用临时密钥做 generate/begin/update/finish 往返，每步打印 ErrorCode 与耗时 | 任何一次真机启动都能证明 qseecomd+keymaster+ICE 通路是否真的可用 |
+| `crates/skyward/src/fingerprint.rs` | fstab 原文与 flags、四处目录 policy、props、boot 头、manifest 实例、8 个 /dev 节点属主、内核段长度与该段 sha256 | 两台机器的日志能逐项对比，而不是“都失败” |
+| `crates/skyward/src/selfstated.rs` | 从 `/vendor/etc/init/*.rc` 与 `manifest*.xml` 读出真实服务补进列表 | 服务清单不该写死；不同固件名字会变 |
+| `devices/venus-materials.sh` | 在**已加密**的手机系统内以 root 跑，产出七份 txt（fstab 两行、keys 目录名与大小、内核是否有 blk-crypto、系统自己成功解锁的 logcat） | 给持有加密机的人一张清单就够，不用来回问 |
+| `skyward-check.sh` | 只认 boot 分区字节、kernel 段 sha256、`/proc/config.gz` sha256 | `uname` 会被伪装（SUSFS 等），这脚本不会被骗 |
+| WLAN 的 `[wlan] writes` 写两个路径 | `b0000000.qcom,cnss-qca6490/fs_ready` 与 `/sys/kernel/cnss/fs_ready` 都写，缺一个只记一行日志 | 不同内核节点名不同，两条都不贵 |
+
+**不要搬的**：本仓库曾把 `FS_IOC_GET_ENCRYPTION_POLICY_EX` 写成 `0xc0086613`（正确是 `0xc0096616`），把 key status 的 offset 写成 56（正确是 64），并用 `ENOTTY` 当“未加密”的判据（正确是 `ENODATA`）。以 AOSP `kernel_common` 的 `include/uapi/linux/fscrypt.h`（android11-5.4 / android12-5.4）为准。
