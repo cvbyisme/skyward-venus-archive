@@ -1,3 +1,9 @@
+> **本仓库已归档。** venus 移植在此停在 `last-standalone-port`。
+> 后续开发转移到 [hushangda/Skyward-venus](https://github.com/hushangda/Skyward-venus) 的 fork：
+> [cvbyisme/Skyward-venus](https://github.com/cvbyisme/Skyward-venus)，那边已经覆盖了这里正在做的加密 data 路径。
+> 下方 Release 原样保留（镜像、boot 备份）供参考。
+> 这里值得带走的东西列在 `fix/venus-panel-brightness` 分支的 `devices/venus.md`。
+
 ![Skyward Recovery](assets/hero.jpg)
 
 # Skyward
