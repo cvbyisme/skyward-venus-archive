@@ -130,6 +130,14 @@ pub struct Wlan {
     pub firmware: Vec<Firmware>,
     /// The network interface the driver makes.
     pub interface: String,
+    /// A file the platform driver watches to switch the chip on: written
+    /// `ON` once its firmware is in place, and `OFF` as the WLAN is let go.
+    /// The driver of this phone copies exactly three bytes of the write,
+    /// newline included, so a value without one is not a control operation
+    /// at all. Where the driver starts from the firmware alone, this is left
+    /// out and nothing is written.
+    #[serde(default)]
+    pub power: Option<String>,
     /// The phone's own wpa_supplicant.
     pub supplicant: String,
     /// Directories for its LD_LIBRARY_PATH, searched in order and before
@@ -175,6 +183,20 @@ pub struct Firmware {
     /// read-only while the file is read.
     #[serde(default)]
     pub partition: Option<String>,
+    /// Whether the file is the driver's own settings file rather than a
+    /// copy of it. This phone keeps its factory WLAN address on persist as
+    /// `wlan0=<twelve hex digits>`, and the driver it runs reads
+    /// `Intf0MacAddress=<THE SAME DIGITS IN CAPITALS>` and then `END` out of
+    /// `wlan_mac.bin`, so the bytes cannot be copied across as they are: the
+    /// address the phone was made with would never reach the driver. Any
+    /// other shape is refused rather than guessed at, and the partition the
+    /// file came from is never written.
+    ///
+    /// Taken from the venus port at github.com/hushangda/Skyward-venus
+    /// (`crates/skyward/src/venus_wlan_mac.rs`), which found this by reading
+    /// the kernel's own `wlan_hdd_cfg.c` parser.
+    #[serde(default)]
+    pub as_intf0_mac: bool,
 }
 
 /// The phone maker's update server, which the stock updater asks about the

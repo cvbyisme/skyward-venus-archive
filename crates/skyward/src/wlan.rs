@@ -378,6 +378,11 @@ impl Station {
         if let Some(mut r) = self.running.take() {
             end(&mut r.child, Some(&r.control));
         }
+        if let Some(power) = &self.cfg.power {
+            if let Err(e) = fs::write(power, "OFF") {
+                let _ = skyward_sys::kmsg(&format!("write OFF to {power}: {e}"));
+            }
+        }
         if let Err(e) = iface::set_up(&self.cfg.interface, false) {
             let _ = skyward_sys::kmsg(&format!("{e:#}"));
         }
@@ -683,6 +688,19 @@ fn bring_up(cfg: &Config, modules: &[PathBuf]) -> Result<()> {
                 let _ = skyward_sys::kmsg(&format!("write {} to {}: {e}", w.value, w.path));
             }
         }
+        // The chip is switched on last, once its firmware is in place: the
+        // driver reads exactly three bytes of this write, newline included,
+        // so `ON` with nothing after it is not a control operation at all.
+        if let Some(power) = &cfg.power {
+            match fs::write(power, "ON\n") {
+                Ok(()) => {
+                    let _ = skyward_sys::kmsg(&format!("asked the chip to start by writing ON to {power}"));
+                }
+                Err(e) => {
+                    let _ = skyward_sys::kmsg(&format!("write ON to {power}: {e}"));
+                }
+            }
+        }
         let until = Instant::now() + INTERFACE_WAIT;
         while !net.exists() {
             if Instant::now() >= until {
@@ -728,7 +746,44 @@ fn place(file: &Firmware) -> Result<()> {
             fs::read(at.join(&file.path)).with_context(|| format!("read {} on {partition}", file.path))?
         }
     };
+    let bytes = match file.as_intf0_mac {
+        false => bytes,
+        true => intf0_mac(&bytes).with_context(|| format!("the factory WLAN address in {}", file.path))?,
+    };
     fs::write(&to, bytes).with_context(|| format!("write {}", to.display()))
+}
+
+/// The factory WLAN address as this phone's driver reads it.
+///
+/// The phone keeps the address it was made with on persist, as
+/// `wlan0=<twelve hex digits>`; the driver reads `wlan_mac.bin` for
+/// `Intf0MacAddress=<the same digits in capitals>` and then `END`. The bytes
+/// are not the same, so a copy is not enough. Nothing is made up here: a line
+/// in any other shape, an address that is not a unicast one, or trailing
+/// settings the driver would not read are refused, and the file the address
+/// came from is only ever read.
+///
+/// This is the rewrite the venus port at github.com/hushangda/Skyward-venus
+/// does in `crates/skyward/src/venus_wlan_mac.rs`, taken from the kernel's own
+/// `wlan_hdd_cfg.c` parser.
+fn intf0_mac(factory: &[u8]) -> Result<Vec<u8>> {
+    let line = factory
+        .strip_suffix(b"\r\n")
+        .or_else(|| factory.strip_suffix(b"\n"))
+        .unwrap_or(factory);
+    let hex = line
+        .strip_prefix(b"wlan0=")
+        .context("the address the phone keeps is not written as wlan0=<twelve hex digits>")?;
+    ensure!(hex.len() == 12 && hex.iter().all(u8::is_ascii_hexdigit), "the address the phone keeps is not twelve hex digits");
+    let digits = std::str::from_utf8(hex).context("the address the phone keeps is not text")?;
+    let mut mac = [0u8; 6];
+    for (i, out) in mac.iter_mut().enumerate() {
+        *out = u8::from_str_radix(&digits[i * 2..i * 2 + 2], 16).context("the address the phone keeps is not hex")?;
+    }
+    ensure!(mac[0] & 1 == 0, "the address the phone keeps is a group address, not one interface's own");
+    ensure!(mac != [0; 6], "the address the phone keeps is all zero");
+    ensure!(mac != [0xff; 6], "the address the phone keeps is the broadcast address");
+    Ok(format!("Intf0MacAddress={}\nEND\n", digits.to_ascii_uppercase()).into_bytes())
 }
 
 /// Start the supplicant on the interface, and wait for its control socket.
@@ -790,4 +845,33 @@ fn end(child: &mut Child, control: Option<&Control>) {
     }
     let _ = child.kill();
     let _ = child.wait();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::intf0_mac;
+
+    #[test]
+    fn the_address_the_phone_keeps_becomes_the_file_the_driver_reads() {
+        assert_eq!(intf0_mac(b"wlan0=001a2b3c4d5e").unwrap(), b"Intf0MacAddress=001A2B3C4D5E\nEND\n");
+        assert_eq!(intf0_mac(b"wlan0=021a2b3c4d5e\r\n").unwrap(), b"Intf0MacAddress=021A2B3C4D5E\nEND\n");
+    }
+
+    #[test]
+    fn any_other_shape_is_refused_rather_than_guessed_at() {
+        for bad in [
+            b"wlan0=001a2b3c4d5e\nwlan1=001a2b3c4d5f".as_slice(),
+            b"wlan0=00:1a:2b:3c:4d:5e",
+            b"wlan0=001a2b3c4d5e ",
+            b"wlan0=001a2b3c4d5",
+            b"wlan0=001a2b3c4d5g",
+            b"wlan1=001a2b3c4d5e",
+            b"wlan0=001a2b3c4d5e\0",
+            b"wlan0=000000000000",
+            b"wlan0=ffffffffffff",
+            b"wlan0=011a2b3c4d5e",
+        ] {
+            assert!(intf0_mac(bad).is_err(), "{:?} was taken for an address", String::from_utf8_lossy(bad));
+        }
+    }
 }

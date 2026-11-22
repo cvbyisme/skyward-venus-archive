@@ -46,20 +46,39 @@ partition = "boot"
 partition = "modem"
 
 [wlan]
-# The WCN6855 driver is a module here, in two parts: hdd and qdf come with
-# qca_cld3_wlan, which asks the platform's cnss2 for the chip.
-modules = ["qca_cld3_wlan"]
-writes = [{ path = "/sys/kernel/cnss/fs_ready", value = "1" }]
+# The WCN6855 driver is built into this phone's kernel: CLD80211, the hdd
+# state node, the cnss2 probe and cfg80211 all come up before any module is
+# loaded, which is what the log of a stock start shows. The two-part module
+# route (qca_cld3_wlan) belongs to a kernel that carries it as a module, and
+# is not this one -- so nothing is loaded here, and the chip is switched on
+# through its own control file instead.
+modules = []
+# What tells the platform driver it may start the chip. The file has one
+# name on this board (`b0000000.qcom,cnss-qca6490`) and another in older
+# kernels, so both are written and a missing one is only a line in the log.
+# The driver copies exactly three bytes, so the newline is part of the value.
+writes = [
+    { path = "/sys/devices/platform/soc/b0000000.qcom,cnss-qca6490/fs_ready", value = "1\n" },
+    { path = "/sys/kernel/cnss/fs_ready", value = "1\n" },
+]
+# The chip is switched on by writing ON here, once its firmware is in place;
+# OFF lets it go with the WLAN. Without the newline the driver reads a write
+# it cannot make sense of.
+power = "/dev/wlan"
 firmware = [
     { name = "wlan/qca_cld/qca6390/WCNSS_qcom_cfg.ini", path = "/vendor/etc/wifi/qca6390/WCNSS_qcom_cfg.ini" },
-    { name = "wlan/qca_cld/qca6390/wlan_mac.bin", partition = "persist", path = "wlan_mac.bin" },
+    # The phone keeps this address as `wlan0=<twelve hex digits>` and the
+    # driver reads `Intf0MacAddress=<the same in capitals>` then `END`, so the
+    # file is written rather than copied. persist is only read.
+    { name = "wlan/qca_cld/qca6390/wlan_mac.bin", partition = "persist", path = "wlan_mac.bin", as_intf0_mac = true },
 ]
 interface = "wlan0"
 supplicant = "/vendor/bin/hw/wpa_supplicant"
 libraries = ["/vendor/lib64", "/system/lib64"]
-service = "android.hardware.wifi.supplicant.ISupplicant/default"
+# The name the phone's own supplicant publishes itself under: the version is
+# part of it, and the directory looks for exactly this one.
+service = "android.hardware.wifi.supplicant@1.3::ISupplicant/default"
 probe = "http://connect.rom.miui.com/generate_204"
-
 [update]
 server = "https://update.miui.com/updates/miotaV3.php"
 
