@@ -1,3 +1,12 @@
+> **This repository is archived.** Its venus port stopped here at
+> `last-standalone-port`. Development continues on the fork of
+> [hushangda/Skyward-venus](https://github.com/hushangda/Skyward-venus) at
+> [cvbyisme/Skyward-venus](https://github.com/cvbyisme/Skyward-venus), which
+> already covers the encrypted-data path this port was working towards. The
+> releases below are kept as they are (images, boot dumps) for reference.
+> What is worth carrying over from here is listed in `devices/venus.md` on
+> the `fix/venus-panel-brightness` branch.
+
 ![Skyward Recovery](assets/hero.jpg)
 
 # Skyward
